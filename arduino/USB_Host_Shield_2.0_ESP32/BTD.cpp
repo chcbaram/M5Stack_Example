@@ -35,14 +35,15 @@ enum {
 typedef struct 
 {
   uint16_t length;
-  uint8_t  rx_buf[256];
+  uint8_t  rx_buf[128];
 } bt_buf_msg_t;
 
-int bt_buf_max = 8;
-int bt_buf_in  = 0;
-int bt_buf_out = 0;
-bt_buf_msg_t bt_buf_msg[8];
+volatile uint32_t bt_buf_max = 16;
+volatile uint32_t bt_buf_in  = 0;
+volatile uint32_t bt_buf_out = 0;
+bt_buf_msg_t bt_buf_msg[16];
 uint8_t      bt_tx_buf[256];
+
 
 
 static void controller_rcv_pkt_ready(void)
@@ -55,6 +56,9 @@ static void controller_rcv_pkt_ready(void)
 static int host_rcv_pkt(uint8_t *data, uint16_t len)
 {
   bt_buf_msg_t *p_msg;
+  uint16_t i;
+  bool recv = false;
+
 /*
   printf("\r\nrx ");
   for (int i=0; i<len; i++)
@@ -66,13 +70,27 @@ static int host_rcv_pkt(uint8_t *data, uint16_t len)
 
   p_msg = &bt_buf_msg[bt_buf_in];
 
+  if (data[0] == H4_TYPE_EVENT)
+  {
+    recv = true;
+  }
+  if (data[0] == H4_TYPE_ACL)
+  {
+    recv = true;
+  }
+
+  if (recv == false)
+  {
+    return 0;
+  }
+
   //printf(" len : %d ", len);
-  for (uint16_t i = 0; i < len; i++) 
+  for (i = 0; i < len && i < 128; i++) 
   {
   //printf("%02x ", data[i]);
     p_msg->rx_buf[i] = data[i];
   }
-  p_msg->length = len;
+  p_msg->length = i;
 
 
   bt_buf_in++;
@@ -83,7 +101,7 @@ static int host_rcv_pkt(uint8_t *data, uint16_t len)
 
   if (bt_buf_in == bt_buf_out)
   {
-    printf("Overflow \r\n");
+    printf("Overflow %d \r\n", bt_buf_in);
   }
 
   return 0;
@@ -98,15 +116,14 @@ void bleAdvtTask(void *pvParameters)
 {
   int cmd_cnt = 0;
   bool send_avail = false;
+  BTD *p_btd = (BTD *)pvParameters;
 
   printf("bleAdvTask start\r\n");
   while (1) 
   {
-    send_avail = esp_vhci_host_check_send_available();
-
-    if (send_avail)
+    if (p_btd != NULL)
     {
-
+      p_btd->update();
     }
     delay(1);
   }
@@ -130,7 +147,7 @@ bool BTD::begin(void)
   }
   esp_vhci_host_register_callback(&vhci_host_cb); 
   
-  //xTaskCreatePinnedToCore(&bleAdvtTask, "bleAdvtTask", 2048, NULL, 5, NULL, 0);
+  xTaskCreatePinnedToCore(&bleAdvtTask, "bleAdvtTask", 2048, (void *)this, 5, NULL, 0);
   return true;
 }
 
@@ -501,27 +518,39 @@ uint8_t BTD::Poll() {
                 return 0;
         if((int32_t)((uint32_t)millis() - qNextPollTime) >= 0L) { // Don't poll if shorter than polling interval
                 qNextPollTime = (uint32_t)millis() + pollInterval; // Set new poll time
-                HCI_event_task(); // Poll the HCI event pipe
-                HCI_task(); // HCI state machine
-                ACL_event_task(); // Poll the ACL input pipe too
+                //HCI_event_task(); // Poll the HCI event pipe
+                //HCI_task(); // HCI state machine
+                //ACL_event_task(); // Poll the ACL input pipe too
         }
         return 0;
 }
 
 uint8_t BTD::update() 
 {
-  static uint32_t pre_time;
+  HCI_task(); // HCI state machine
 
-  //if (millis()-pre_time >= 10)
+
+  if (bt_buf_in != bt_buf_out)
   {
-    pre_time = millis();
-    if(esp_vhci_host_check_send_available())
+    if (bt_buf_msg[bt_buf_out].rx_buf[0] == H4_TYPE_EVENT)
     {
-      HCI_event_task(); // Poll the HCI event pipe
-      HCI_task(); // HCI state machine
-      ACL_event_task(); // Poll the ACL input pipe too
+      HCI_event_task(&bt_buf_msg[bt_buf_out].rx_buf[1], 
+                      bt_buf_msg[bt_buf_out].length-1); //Poll the HCI event pipe      
+    }
+    if (bt_buf_msg[bt_buf_out].rx_buf[0] == H4_TYPE_ACL)
+    {
+      ACL_event_task(&bt_buf_msg[bt_buf_out].rx_buf[1], 
+                      bt_buf_msg[bt_buf_out].length-1); // Poll the ACL input pipe too
+      
+    }
+    bt_buf_out++;
+    if (bt_buf_out >= bt_buf_max)
+    {
+      bt_buf_out = 0;
     }
   }
+  ACL_event_task(NULL, 0);
+
   return 0;
 }
 
@@ -531,36 +560,19 @@ void BTD::disconnect() {
                         btService[i]->disconnect();
 };
 
-void BTD::HCI_event_task() {
+void BTD::HCI_event_task(uint8_t *p_data, uint16_t param_length) {
         uint16_t length = BULK_MAXPKTSIZE; // Request more than 16 bytes anyway, the inTransfer routine will take care of this
         uint8_t rcode = 0; // = pUsb->inTransfer(bAddress, epInfo[ BTD_EVENT_PIPE ].epAddr, &length, hcibuf, pollInterval); // Input on endpoint 1
+        int i;
 
-        if (bt_buf_in != bt_buf_out)
+        for (i=0; i<param_length; i++)
         {
-          if (bt_buf_msg[bt_buf_out].rx_buf[0] == H4_TYPE_EVENT)
-          {
-            for (int i=0; i<bt_buf_msg[bt_buf_out].length; i++)
-            {
-              if (i < BULK_MAXPKTSIZE)
-              {              
-                hcibuf[i] = bt_buf_msg[bt_buf_out].rx_buf[i+1];
-              }
-            }
-            bt_buf_out++;
-            if (bt_buf_out >= bt_buf_max)
-            {
-              bt_buf_out = 0;
-            }
+          if (i < BULK_MAXPKTSIZE)
+          {              
+            hcibuf[i] = p_data[i];
           }
-          else
-          {
-            return;
-          }          
         }
-        else
-        {
-          return;
-        }        
+        length = i;
 
         if(!rcode || rcode == hrNAK) { // Check for errors
                 switch(hcibuf[0]) { // Switch on event type
@@ -1115,42 +1127,37 @@ void BTD::HCI_task() {
         }
 }
 
-void BTD::ACL_event_task() {
+void BTD::ACL_event_task(uint8_t *p_data, uint16_t param_length) {
         uint16_t length = BULK_MAXPKTSIZE;
         uint8_t rcode = 0; //pUsb->inTransfer(bAddress, epInfo[ BTD_DATAIN_PIPE ].epAddr, &length, l2capinbuf, pollInterval); // Input on endpoint 2
+        int i;
 
-
-        if (bt_buf_in != bt_buf_out)
+        if (p_data != NULL)
         {
-          if (bt_buf_msg[bt_buf_out].rx_buf[0] == H4_TYPE_ACL)
+          for (i=0; i<param_length; i++)
           {
-            for (int i=0; i<bt_buf_msg[bt_buf_out].length; i++)
-            {
-              l2capinbuf[i] = bt_buf_msg[bt_buf_out].rx_buf[i+1];
+            if (i < BULK_MAXPKTSIZE)
+            {              
+              l2capinbuf[i] = p_data[i];
             }
-            length = bt_buf_msg[bt_buf_out].length-1;
+          }
+          length = i;
 
-            if(!rcode) { // Check for errors
-                    if(length > 0) { // Check if any data was read
-                            for(uint8_t i = 0; i < BTD_NUM_SERVICES; i++) {
-                                    if(btService[i])
-                                            btService[i]->ACLData(l2capinbuf);
-                            }
-                    }
-            }
-    #ifdef EXTRADEBUG
-            else if(rcode != hrNAK) {
-                    Notify(PSTR("\r\nACL data in error: "), 0x80);
-                    D_PrintHex<uint8_t > (rcode, 0x80);
-            }
-    #endif
 
-            bt_buf_out++;
-            if (bt_buf_out >= bt_buf_max)
-            {
-              bt_buf_out = 0;
-            }
-          }       
+          if(!rcode) { // Check for errors
+                  if(length > 0) { // Check if any data was read
+                          for(uint8_t i = 0; i < BTD_NUM_SERVICES; i++) {
+                                  if(btService[i])
+                                          btService[i]->ACLData(l2capinbuf);
+                          }
+                  }
+          }
+      #ifdef EXTRADEBUG
+          else if(rcode != hrNAK) {
+                  Notify(PSTR("\r\nACL data in error: "), 0x80);
+                  D_PrintHex<uint8_t > (rcode, 0x80);
+          }
+      #endif
         }
 
         for(uint8_t i = 0; i < BTD_NUM_SERVICES; i++)
@@ -1182,6 +1189,10 @@ void BTD::HCI_Command(uint8_t* data, uint16_t nbytes) {
       }
       esp_vhci_host_send_packet(bt_tx_buf, nbytes+1);
       break;
+    }
+    else
+    {
+      delay(1);
     }
   }
 }

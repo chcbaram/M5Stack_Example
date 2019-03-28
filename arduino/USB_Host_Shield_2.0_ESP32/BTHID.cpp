@@ -360,10 +360,10 @@ void BTHID::Run() {
                                 Notify(PSTR("\r\nHID Control Incoming Connection Request"), 0x80);
 #endif
                                 pBtd->l2cap_connection_response(hci_handle, identifier, control_dcid, control_scid, PENDING);
-                                delay(100);
+                                delay(1); // chcbaram
                                 pBtd->l2cap_connection_response(hci_handle, identifier, control_dcid, control_scid, SUCCESSFUL);
                                 identifier++;
-                                delay(100);
+                                delay(1); // chcbaram
                                 pBtd->l2cap_config_request(hci_handle, identifier, control_scid);
                                 l2cap_state = L2CAP_CONTROL_SUCCESS;
                         }

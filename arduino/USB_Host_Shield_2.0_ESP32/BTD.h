@@ -204,7 +204,7 @@ public:
          * Constructor for the BTD class.
          * @param  p   Pointer to USB class instance.
          */
-        BTD(USB *p);
+        BTD(USB *p=NULL);
 
         bool begin(void);
         uint8_t update() ;
@@ -559,9 +559,10 @@ private:
         uint8_t l2capoutbuf[14]; // General purpose buffer for L2CAP out data
 
         /* State machines */
-        void HCI_event_task(); // Poll the HCI event pipe
+        void HCI_event_task(uint8_t *p_data, uint16_t param_length); // Poll the HCI event pipe
         void HCI_task(); // HCI state machine
-        void ACL_event_task(); // ACL input pipe
+        void ACL_event_task(uint8_t *p_data, uint16_t param_length); // ACL input pipe
+
 
         /* Used to set the Bluetooth Address internally to the PS3 Controllers */
         void setBdaddr(uint8_t* BDADDR);

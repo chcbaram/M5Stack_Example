@@ -38,6 +38,9 @@ public:
                 PS4Parser::Reset();
         };
 
+        void begin(void) {
+                pBtd->begin();
+        }
         /**
          * Used to check if a PS4 controller is connected.
          * @return Returns true if it is connected.
