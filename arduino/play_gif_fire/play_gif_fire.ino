@@ -43,6 +43,7 @@ void loop() {
     M5.Lcd.setTextDatum(MC_DATUM);
     M5.Lcd.setTextColor(TFT_BLUE, TFT_YELLOW);
     M5.Lcd.drawString(String(index),160,120,8);
+    M5.Lcd.drawString("Loading",160,200,4);    
   }
   if (M5.BtnC.wasReleased()) 
   {
@@ -51,7 +52,8 @@ void loop() {
     M5.Lcd.fillRoundRect((320-100)/2, (240-100)/2, 100, 100, 5, YELLOW);
     M5.Lcd.setTextDatum(MC_DATUM);
     M5.Lcd.setTextColor(TFT_BLUE, TFT_YELLOW);
-    M5.Lcd.drawString(String(index),160,120,8);    
+    M5.Lcd.drawString(String(index),160,120,8);
+    M5.Lcd.drawString("Loading",160,200,4);        
   }
   M5.update();
 }

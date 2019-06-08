@@ -97,7 +97,7 @@ void drawThread(void *arg)
     if (xSemaphoreTake(draw_semaphore, 100) == pdTRUE)
     {
       gif_play.is_draw = true;
-      M5.Lcd.setWindow(0, 0, LCD_WIDTH-1, LCD_HEIGHT-1);
+      M5.Lcd.setAddrWindow(0, 0, LCD_WIDTH, LCD_HEIGHT);
       M5.Lcd.pushColors(frame, LCD_WIDTH * LCD_HEIGHT);
       gif_play.is_draw = false;
     }      
